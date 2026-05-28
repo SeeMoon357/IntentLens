@@ -17,13 +17,44 @@ test('buildMainnetIntentQuoteRequest creates the supported Base to Arbitrum USDC
 	});
 
 	assert.equal(request.success, true);
-	assert.equal(request.data.route.fromChainId, 8453);
-	assert.equal(request.data.route.toChainId, 42161);
-	assert.equal(request.data.route.fromToken.symbol, 'USDC');
-	assert.equal(request.data.route.toToken.symbol, 'USDC');
-	assert.equal(request.data.amount, '10000000');
-	assert.equal(request.data.user, '0x1111111111111111111111111111111111111111');
-	assert.equal(request.data.receiver, '0x1111111111111111111111111111111111111111');
+	assert.equal(
+		request.data.user,
+		'0x00010000022105141111111111111111111111111111111111111111',
+	);
+	assert.deepEqual(request.data.supportedTypes, ['oif-escrow-v0']);
+	assert.equal(request.data.intent.intentType, 'oif-swap');
+	assert.equal(request.data.intent.swapType, 'exact-input');
+	assert.equal(
+		request.data.intent.inputs[0].user,
+		'0x00010000022105141111111111111111111111111111111111111111',
+	);
+	assert.equal(
+		request.data.intent.inputs[0].asset,
+		'0x0001000002210514833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+	);
+	assert.equal(request.data.intent.inputs[0].amount, '10000000');
+	assert.equal(
+		request.data.intent.outputs[0].receiver,
+		'0x0001000002A4B1141111111111111111111111111111111111111111',
+	);
+	assert.equal(
+		request.data.intent.outputs[0].asset,
+		'0x0001000002A4B114af88d065e77c8cC2239327C5EDb3A432268e5831',
+	);
+	assert.equal(request.data.intent.outputs[0].amount, null);
+});
+
+test('encodeErc7930EvmAddress builds LI.FI interoperable addresses', async () => {
+	const { encodeErc7930EvmAddress } = await loadLifiIntentsModule();
+
+	assert.equal(
+		encodeErc7930EvmAddress(8453, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'),
+		'0x0001000002210514833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+	);
+	assert.equal(
+		encodeErc7930EvmAddress(42161, '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'),
+		'0x0001000002A4B114af88d065e77c8cC2239327C5EDb3A432268e5831',
+	);
 });
 
 test('buildMainnetIntentQuoteRequest rejects unsupported routes', async () => {
@@ -52,16 +83,22 @@ test('createLifiIntentsClient posts quote requests to the mainnet order API', as
 	});
 
 	const result = await client.requestQuote({
-		user: '0x1111111111111111111111111111111111111111',
-		receiver: '0x1111111111111111111111111111111111111111',
-		amount: '10000000',
-		route: {
-			fromChainId: 8453,
-			toChainId: 42161,
-			fromToken: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' },
-			toToken: { symbol: 'USDC', address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' },
+		user: '0x00010000022105141111111111111111111111111111111111111111',
+		intent: {
+			intentType: 'oif-swap',
+			inputs: [{
+				user: '0x00010000022105141111111111111111111111111111111111111111',
+				asset: '0x0001000002210514833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+				amount: '10000000',
+			}],
+			outputs: [{
+				receiver: '0x0001000002A4B1141111111111111111111111111111111111111111',
+				asset: '0x0001000002A4B114af88d065e77c8cC2239327C5EDb3A432268e5831',
+				amount: null,
+			}],
+			swapType: 'exact-input',
 		},
-		objective: 'best_received',
+		supportedTypes: ['oif-escrow-v0'],
 	});
 
 	assert.equal(result.success, true);
@@ -70,6 +107,7 @@ test('createLifiIntentsClient posts quote requests to the mainnet order API', as
 	assert.equal(calls[0].init.method, 'POST');
 	assert.equal(calls[0].init.headers['content-type'], 'application/json');
 	assert.match(String(calls[0].init.body), /10000000/);
+	assert.match(String(calls[0].init.body), /oif-escrow-v0/);
 });
 
 test('buildIntentFlightRecord records a truthful failed quote attempt', async () => {
@@ -85,16 +123,22 @@ test('buildIntentFlightRecord records a truthful failed quote attempt', async ()
 			userAddress: '0x1111111111111111111111111111111111111111',
 		},
 		quoteRequest: {
-			user: '0x1111111111111111111111111111111111111111',
-			receiver: '0x1111111111111111111111111111111111111111',
-			amount: '10000000',
-			route: {
-				fromChainId: 8453,
-				toChainId: 42161,
-				fromToken: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' },
-				toToken: { symbol: 'USDC', address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' },
+			user: '0x00010000022105141111111111111111111111111111111111111111',
+			intent: {
+				intentType: 'oif-swap',
+				inputs: [{
+					user: '0x00010000022105141111111111111111111111111111111111111111',
+					asset: '0x0001000002210514833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+					amount: '10000000',
+				}],
+				outputs: [{
+					receiver: '0x0001000002A4B1141111111111111111111111111111111111111111',
+					asset: '0x0001000002A4B114af88d065e77c8cC2239327C5EDb3A432268e5831',
+					amount: null,
+				}],
+				swapType: 'exact-input',
 			},
-			objective: 'best_received',
+			supportedTypes: ['oif-escrow-v0'],
 		},
 		quoteResult: {
 			success: false,
@@ -139,7 +183,8 @@ test('requestMainnetIntentFlight builds and requests a mainnet flight record', a
 	);
 
 	assert.equal(seenRequests.length, 1);
-	assert.equal(seenRequests[0].amount, '5000000');
+	assert.equal(seenRequests[0].intent.inputs[0].amount, '5000000');
+	assert.equal(seenRequests[0].intent.outputs[0].amount, null);
 	assert.equal(record.status, 'quote_ready');
 	assert.deepEqual(record.orderPreview, { quotes: [{ id: 'mainnet-quote' }] });
 });

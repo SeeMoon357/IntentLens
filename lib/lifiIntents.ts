@@ -14,19 +14,29 @@ export type IntentToken = {
 	address: string;
 };
 
-export type IntentRoute = {
-	fromChainId: number;
-	toChainId: number;
-	fromToken: IntentToken;
-	toToken: IntentToken;
+export type IntentInput = {
+	user: string;
+	asset: string;
+	amount: string;
+};
+
+export type IntentOutput = {
+	receiver: string;
+	asset: string;
+	amount: string | null;
+};
+
+export type IntentSwap = {
+	intentType: 'oif-swap';
+	inputs: IntentInput[];
+	outputs: IntentOutput[];
+	swapType: 'exact-input';
 };
 
 export type IntentQuoteRequest = {
 	user: string;
-	receiver: string;
-	amount: string;
-	route: IntentRoute;
-	objective: PlannerObjective;
+	intent: IntentSwap;
+	supportedTypes: ['oif-escrow-v0'];
 };
 
 export type IntentGoal = {
@@ -89,6 +99,26 @@ function toErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : 'Unknown error';
 }
 
+export function encodeErc7930EvmAddress(
+	chainId: number,
+	address: string,
+): string {
+	const normalizedAddress = address.startsWith('0x') ? address.slice(2) : address;
+	if (!/^[0-9a-fA-F]{40}$/.test(normalizedAddress)) {
+		throw new Error('A valid 20-byte EVM address is required.');
+	}
+
+	const chainReference = chainId.toString(16);
+	const paddedChainReference =
+		chainReference.length % 2 === 0 ? chainReference : `0${chainReference}`;
+	const encodedChainReference = paddedChainReference.toUpperCase();
+	const chainReferenceLength = (paddedChainReference.length / 2)
+		.toString(16)
+		.padStart(2, '0');
+
+	return `0x00010000${chainReferenceLength}${encodedChainReference}14${normalizedAddress}`;
+}
+
 async function parseJsonResponse(response: Response): Promise<unknown> {
 	const contentType = response.headers.get('content-type') || '';
 	if (!contentType.includes('application/json')) {
@@ -134,16 +164,32 @@ export function buildMainnetIntentQuoteRequest(input: {
 	return {
 		success: true,
 		data: {
-			user: input.userAddress,
-			receiver: input.userAddress,
-			amount: parseUnits(String(input.amount), USDC_DECIMALS).toString(),
-			route: {
-				fromChainId: INTENT_SOURCE_CHAIN_ID,
-				toChainId: INTENT_TARGET_CHAIN_ID,
-				fromToken: { symbol: 'USDC', address: fromToken },
-				toToken: { symbol: 'USDC', address: toToken },
+			user: encodeErc7930EvmAddress(INTENT_SOURCE_CHAIN_ID, input.userAddress),
+			intent: {
+				intentType: 'oif-swap',
+				inputs: [
+					{
+						user: encodeErc7930EvmAddress(
+							INTENT_SOURCE_CHAIN_ID,
+							input.userAddress,
+						),
+						asset: encodeErc7930EvmAddress(INTENT_SOURCE_CHAIN_ID, fromToken),
+						amount: parseUnits(String(input.amount), USDC_DECIMALS).toString(),
+					},
+				],
+				outputs: [
+					{
+						receiver: encodeErc7930EvmAddress(
+							INTENT_TARGET_CHAIN_ID,
+							input.userAddress,
+						),
+						asset: encodeErc7930EvmAddress(INTENT_TARGET_CHAIN_ID, toToken),
+						amount: null,
+					},
+				],
+				swapType: 'exact-input',
 			},
-			objective: input.objective ?? 'best_received',
+			supportedTypes: ['oif-escrow-v0'],
 		},
 	};
 }
