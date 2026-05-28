@@ -13,22 +13,23 @@ const promptItems: PromptsProps['items'] = [
 	{
 		key: '1',
 		icon: <BulbOutlined style={{ color: '#FFD700' }} />,
-		description: 'Move 10 USDC from Base to Arbitrum with best received amount',
+		description: 'Move 1 USDC from Base to Arbitrum with best received amount',
 	},
 	{
 		key: '2',
 		icon: <InfoCircleOutlined style={{ color: '#1890FF' }} />,
-		description: 'Send 5 USDC from Base to Arbitrum using LI.FI Intents',
+		description: 'Send 10 USDC from Base to Arbitrum using LI.FI Intents',
 	},
 	{
 		key: '3',
 		icon: <CheckCircleOutlined style={{ color: '#52C41A' }} />,
-		description: 'Preview a Base USDC to Arbitrum USDC intent order',
+		description: 'Preview a 1 USDC intent order from Base to Arbitrum',
 	},
 	{
 		key: '4',
 		icon: <InfoCircleOutlined style={{ color: '#722ED1' }} />,
-		description: 'Explain LI.FI Intents for a Base to Arbitrum USDC transfer',
+		description:
+			'Transfer 10 USDC from Base to Arbitrum and show me the IntentLens flight recorder',
 	},
 ];
 

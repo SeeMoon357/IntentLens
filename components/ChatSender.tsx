@@ -1,7 +1,6 @@
 'use client';
 
 import {
-	ApiOutlined,
 	AudioOutlined,
 	CloudUploadOutlined,
 	PaperClipOutlined,
@@ -354,7 +353,7 @@ export default function ChatSender({
 				onChangeAction(nextValue);
 			}}
 			suffix={false}
-			autoSize={{ minRows: 1, maxRows: 6 }}
+			autoSize={{ minRows: 1, maxRows: 3 }}
 			placeholder={CHAT_SENDER_TEXT.placeholder}
 			submitType='enter'
 			onPasteFile={(files) => {
@@ -374,17 +373,10 @@ export default function ChatSender({
 				return (
 					<Flex
 						className='chat-sender-custom-footer'
-						justify='space-between'
+						justify='flex-end'
 						align='center'
 						gap='small'
-						wrap
 					>
-						<Sender.Switch
-							icon={<ApiOutlined />}
-							style={iconStyle}
-						>
-							{CHAT_SENDER_TEXT.skillAndMcp}
-						</Sender.Switch>
 						{actionsNode}
 					</Flex>
 				);

@@ -10,7 +10,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
-import favicon from '../app/favicon.ico';
 import type { AgentStepEvent } from '@/lib/agentSteps';
 import { upsertAgentStep } from '@/lib/agentSteps';
 import type { AgentChatMode } from '@/lib/agentRuntime';
@@ -808,7 +807,7 @@ export default function ChatContent() {
 					avatar: (
 						<Avatar
 							size={40}
-							src={favicon.src}
+							src='/intent-agent-logo.png'
 						/>
 					),
 					header: isAiMessage ? (
@@ -874,11 +873,8 @@ export default function ChatContent() {
 				{hasUserMessage && (
 					<div
 						ref={conversationRef}
-						className='conversation-scroll-area min-h-0 flex-1 overflow-y-auto rounded-2xl p-3 flex flex-col gap-4'
-						style={{
-							background: 'var(--app-panel)',
-							scrollbarGutter: 'stable',
-						}}
+						className='conversation-scroll-area intentlens-chat-shell min-h-0 flex-1 overflow-y-auto rounded-[22px] p-4 flex flex-col gap-4'
+						style={{ scrollbarGutter: 'stable' }}
 					>
 						<Bubble.List
 							items={bubbleItems}
@@ -890,10 +886,7 @@ export default function ChatContent() {
 			</div>
 
 			<div
-				className='mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl rounded-2xl p-2 flex-shrink-0 border [border-color:var(--app-border)]'
-				style={{
-					background: 'var(--app-panel)',
-				}}
+				className='intentlens-composer-shell mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl rounded-[20px] p-1 flex-shrink-0'
 			>
 				{chatMode === 'classic_route' ? (
 					<div className='mb-2 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700'>

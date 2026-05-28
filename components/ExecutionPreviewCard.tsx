@@ -104,11 +104,16 @@ export default function ExecutionPreviewCard({
 	const isIntentEscrow = preview.quote?.tool === 'lifi-intents';
 
 	return (
-		<div className='mt-3 rounded-2xl border border-black/10 bg-black/[0.03] p-4 text-sm'>
-			<div className='font-semibold text-black'>
-				{isIntentEscrow ? 'LI.FI Intents Escrow Preview' : 'Execution Preview'}
+		<div className='intentlens-card mt-3 rounded-[22px] p-4 text-sm'>
+			<div className='flex flex-wrap items-center justify-between gap-3'>
+				<div className='font-semibold text-slate-950'>
+					{isIntentEscrow ? 'LI.FI Intents Escrow Preview' : 'Execution Preview'}
+				</div>
+				<div className='rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs font-medium text-slate-600'>
+					{preview.routeSource === 'live' ? 'Live quote' : 'Fallback quote'}
+				</div>
 			</div>
-			<div className='mt-3 grid gap-2 text-black/80'>
+			<div className='mt-3 grid gap-2 text-slate-700'>
 				<div>
 					{isIntentEscrow ? 'Intent action' : 'Selected vault'}: {preview.targetVault}
 				</div>
@@ -123,7 +128,7 @@ export default function ExecutionPreviewCard({
 				<div>Destination chain: {preview.destinationChainLabel}</div>
 				<div>Bridge required: {preview.bridgeRequired ? 'yes' : 'no'}</div>
 				{preview.executionKind === 'cross_chain' && preview.toChain === 137 ? (
-					<div className='rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sky-900'>
+					<div className='rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 text-sky-900'>
 						This version does not include destination-chain gas refueling. You may still need POL for manual transactions on Polygon later.
 					</div>
 				) : null}
@@ -200,29 +205,29 @@ export default function ExecutionPreviewCard({
 					</div>
 				) : null}
 				{preview.blockingReason ? (
-					<div className='rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900'>
+					<div className='rounded-2xl border border-amber-300/80 bg-amber-50/80 px-3 py-2 text-amber-900'>
 						{preview.blockingReason}
 					</div>
 				) : null}
 				{executionState?.routeStatus === 'partial' && executionState.routeMessage ? (
-					<div className='rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900'>
+					<div className='rounded-2xl border border-amber-300/80 bg-amber-50/80 px-3 py-2 text-amber-900'>
 						{executionState.routeMessage}
 					</div>
 				) : null}
 				{executionState?.error ? (
-					<div className='rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-rose-900'>
+					<div className='rounded-2xl border border-rose-300/80 bg-rose-50/80 px-3 py-2 text-rose-900'>
 						{executionState.routeStatus === 'refunded' && executionState.routeMessage
 							? executionState.routeMessage
 							: executionState.error}
 					</div>
 				) : null}
 				{executionState?.status === 'tracking_route' && executionState.routeMessage ? (
-					<div className='rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sky-900'>
+					<div className='rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 text-sky-900'>
 						{executionState.routeMessage}
 					</div>
 				) : null}
 				{isIntentEscrow && executionState?.executionTxHash ? (
-					<div className='rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950'>
+					<div className='rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2 text-emerald-950'>
 						<div className='font-semibold'>Delivery Tracker</div>
 						<div className='mt-1'>Opened on Base: done</div>
 						<div>
@@ -254,7 +259,7 @@ export default function ExecutionPreviewCard({
 					</div>
 				) : null}
 				{executionState?.preflight ? (
-					<div className='rounded-xl border border-black/10 bg-white/70 px-3 py-2 text-black/70'>
+					<div className='intentlens-soft-panel rounded-2xl px-3 py-2 text-slate-600'>
 						<div>Allowance sufficient: {executionState.preflight.allowanceSufficient ? 'yes' : 'no'}</div>
 						<div>Native gas sufficient: {executionState.preflight.nativeGasSufficient ? 'yes' : 'no'}</div>
 					</div>
