@@ -13,6 +13,7 @@ import { useAccount, useChainId, useSwitchChain } from 'wagmi';
 import favicon from '../app/favicon.ico';
 import type { AgentStepEvent } from '@/lib/agentSteps';
 import { upsertAgentStep } from '@/lib/agentSteps';
+import type { AgentChatMode } from '@/lib/agentRuntime';
 import type { ExecutionPreview } from '@/lib/executionRuntime';
 import type { IntentFlightRecord } from '@/lib/lifiIntents';
 import type { NormalizedVaultCandidate } from '@/lib/lifiRuntime';
@@ -138,6 +139,7 @@ export default function ChatContent() {
 	const [generating, setGenerating] = useState(false);
 	const [currentAiKey, setCurrentAiKey] = useState<string | null>(null);
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
+	const [chatMode, setChatMode] = useState<AgentChatMode>('intent_lens');
 	const wasConnectedRef = useRef(Boolean(userAddress));
 	const streamAbortRef = useRef<AbortController | null>(null);
 	const conversationRef = useRef<HTMLDivElement | null>(null);
@@ -263,6 +265,20 @@ export default function ChatContent() {
 		[],
 	);
 
+	const enterClassicRouteMode = useCallback(() => {
+		setChatMode('classic_route');
+		setMessages((prev) => [
+			...prev,
+			{
+				key: `ai-classic-mode-${Date.now()}`,
+				role: 'ai',
+				content:
+					'Classic LI.FI route mode is ready. Ask a route-style question like "Preview a classic LI.FI route from Base USDC to Arbitrum USDC for 0.02 USDC".',
+			},
+		]);
+		pendingScrollRef.current = true;
+	}, []);
+
 	const executeMessagePlan = useCallback(
 		async (aiKey: string) => {
 			const target = messages.find((message) => message.key === aiKey);
@@ -288,7 +304,10 @@ export default function ChatContent() {
 			<div>
 				{renderAgentSteps(message.steps)}
 				{renderMarkdownContent(message.content)}
-				<IntentFlightRecordCard record={message.intentFlightRecord} />
+				<IntentFlightRecordCard
+					record={message.intentFlightRecord}
+					onOpenClassicRoute={enterClassicRouteMode}
+				/>
 				<ExecutionPreviewCard
 					plan={message.plan}
 					preview={message.executionPreview}
@@ -301,7 +320,7 @@ export default function ChatContent() {
 				/>
 			</div>
 		),
-		[executeMessagePlan, renderAgentSteps, renderMarkdownContent],
+		[executeMessagePlan, renderAgentSteps, renderMarkdownContent, enterClassicRouteMode],
 	);
 
 	const bubbleItems = useMemo<BubbleItemType[]>(
@@ -375,6 +394,7 @@ export default function ChatContent() {
 			setThinking(false);
 			setGenerating(false);
 			setCurrentAiKey(null);
+			setChatMode('intent_lens');
 			setMessages([]);
 		};
 
@@ -405,6 +425,7 @@ export default function ChatContent() {
 			setThinking(false);
 			setGenerating(false);
 			setCurrentAiKey(null);
+			setChatMode('intent_lens');
 			setMessages(mockMessages);
 			pendingScrollRef.current = true;
 		};
@@ -608,6 +629,7 @@ export default function ChatContent() {
 						message: text,
 						userAddress,
 						walletChainId,
+						mode: chatMode,
 						messages: history,
 					}),
 					signal: abortController.signal,
@@ -676,6 +698,7 @@ export default function ChatContent() {
 			messages,
 			openConnectModal,
 			scheduleScrollToLatest,
+			chatMode,
 			userAddress,
 			walletChainId,
 		],
@@ -872,6 +895,18 @@ export default function ChatContent() {
 					background: 'var(--app-panel)',
 				}}
 			>
+				{chatMode === 'classic_route' ? (
+					<div className='mb-2 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700'>
+						<span className='font-medium'>Classic route mode</span>
+						<button
+							type='button'
+							className='rounded-lg border border-slate-200 bg-white px-2 py-1 font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-100'
+							onClick={() => setChatMode('intent_lens')}
+						>
+							Back to Intents
+						</button>
+					</div>
+				) : null}
 				<ChatSender
 					value={value}
 					onChangeAction={setValue}

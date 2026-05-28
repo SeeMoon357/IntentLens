@@ -11,18 +11,25 @@ import {
 	type PlannerOutput,
 } from '@/lib/plannerRuntime';
 import {
+	buildIntentExecutionPreview,
 	requestMainnetIntentFlight,
 	type IntentFlightRecord,
 } from '@/lib/lifiIntents';
+import { earningAgentStream } from './earning';
+import type { ExecutionPreview } from '@/lib/executionRuntime';
+import type { NormalizedVaultCandidate } from '@/lib/lifiRuntime';
+import type { AgentStepEvent } from '@/lib/agentSteps';
 import {
 	buildWalletContextResponse,
 	isWalletContextQuestion,
 } from '@/lib/walletContext';
+import type { AgentChatMode } from '@/lib/agentRuntime';
 
 type MainAgentInput = {
 	userMessage: string;
 	userAddress: string;
 	walletChainId: number;
+	mode?: AgentChatMode;
 	messages: Array<{ role: 'user' | 'ai'; content: string }>;
 };
 
@@ -32,6 +39,13 @@ export type MainAgentStreamChunk =
 	| { type: 'error'; content: string }
 	| { type: 'plan'; plan: PlannerOutput }
 	| { type: 'intent_flight_record'; record: IntentFlightRecord }
+	| AgentStepEvent
+	| {
+			type: 'execution_preview';
+			preview: ExecutionPreview;
+			selectedVault: NormalizedVaultCandidate | null;
+			alternatives: NormalizedVaultCandidate[];
+	  }
 	| {
 			type: 'done';
 			intent: 'intent' | 'bridge' | 'monitor' | 'unknown';
@@ -176,10 +190,28 @@ async function* runIntentFlight(
 	});
 
 	yield { type: 'intent_flight_record', record };
+	const executionPreview = buildIntentExecutionPreview({
+		goal: record.goal,
+		quoteResult: record.quoteResult,
+	});
+	if (executionPreview) {
+		yield {
+			type: 'execution_preview',
+			preview: executionPreview,
+			selectedVault: null,
+			alternatives: [],
+		};
+	}
 	yield {
 		type: 'response',
 		content:
-			record.status === 'quote_ready'
+			record.status === 'quote_ready' && executionPreview
+				? [
+						'## IntentLens Flight Recorder',
+						record.educationSummary,
+						'The wallet execution preview below can open the LI.FI Intents escrow order on Base. It still requires your manual wallet confirmation, and settlement is completed by solvers after the source-chain intent is opened.',
+					].join('\n\n')
+				: record.status === 'quote_ready'
 				? [
 						'## IntentLens Flight Recorder',
 						record.educationSummary,
@@ -196,6 +228,20 @@ async function* runIntentFlight(
 		intent: 'intent',
 		chainId: intentPlan.targetChain,
 	};
+}
+
+export function resolveEffectiveIntentForMode(input: {
+	mode?: AgentChatMode;
+	planIntent: PlannerOutput['intent'];
+	detectedIntent: PlannerOutput['intent'];
+}): PlannerOutput['intent'] {
+	if (input.mode === 'classic_route') {
+		return 'earn.deposit';
+	}
+
+	return input.planIntent === 'unknown' && input.detectedIntent !== 'unknown'
+		? input.detectedIntent
+		: input.planIntent;
 }
 
 export async function* mainAgentStream(
@@ -238,10 +284,11 @@ export async function* mainAgentStream(
 		plannerPlan,
 	});
 	const detected = detectIntentFromMessage(input.userMessage);
-	const effectiveIntent =
-		plan.intent === 'unknown' && detected.intent !== 'unknown'
-			? detected.intent
-			: plan.intent;
+	const effectiveIntent = resolveEffectiveIntentForMode({
+		mode: input.mode,
+		planIntent: plan.intent,
+		detectedIntent: detected.intent,
+	});
 
 	if (effectiveIntent === 'bridge' || effectiveIntent === 'monitor') {
 		yield {
@@ -258,6 +305,16 @@ export async function* mainAgentStream(
 
 	if (effectiveIntent === 'intent.transfer') {
 		yield* runIntentFlight(input, plan);
+		return;
+	}
+
+	if (effectiveIntent === 'earn.deposit') {
+		yield* earningAgentStream({
+			userMessage: input.userMessage,
+			userAddress: input.userAddress,
+			plan,
+			messages: input.messages,
+		});
 		return;
 	}
 

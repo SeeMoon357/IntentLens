@@ -13,6 +13,7 @@ function renderExecutionStatus(
 ) {
 	const { status, routeStatus } = executionState;
 	const isCrossChain = preview?.executionKind === 'cross_chain';
+	const isIntentEscrow = preview?.quote?.tool === 'lifi-intents';
 
 	switch (status) {
 		case 'preflighting':
@@ -24,10 +25,16 @@ function renderExecutionStatus(
 		case 'approved':
 			return 'Approval confirmed';
 		case 'awaiting_wallet_execution':
+			if (isIntentEscrow) {
+				return 'Awaiting LI.FI Intents escrow signature';
+			}
 			return isCrossChain
 				? 'Awaiting bridge route signature'
 				: 'Awaiting deposit signature';
 		case 'submitting':
+			if (isIntentEscrow) {
+				return 'Intent escrow transaction signed, waiting for Base confirmation';
+			}
 			return isCrossChain
 				? 'Route signed, waiting for source-chain confirmation'
 				: 'Deposit signed, waiting for on-chain confirmation';
@@ -36,6 +43,18 @@ function renderExecutionStatus(
 		case 'tracking_route':
 			return 'Source-chain route confirmed, tracking final LI.FI status';
 		case 'confirmed':
+			if (isIntentEscrow) {
+				if (executionState.intentOrderStatus === 'Settled') {
+					return 'Intent settled';
+				}
+				if (
+					executionState.intentOrderStatus === 'Delivered' ||
+					executionState.routeReceivingTxHash
+				) {
+					return 'Solver delivered on Arbitrum';
+				}
+				return 'Intent opened on Base; waiting for solver delivery';
+			}
 			if (isCrossChain && routeStatus === 'partial') {
 				return 'Route completed with alternate asset';
 			}
@@ -51,6 +70,15 @@ function renderExecutionStatus(
 		default:
 			return 'Idle';
 	}
+}
+
+function deliveryStatusLabel(status: ClientExecutionState['intentOrderStatus']) {
+	if (status === 'Settled') return 'Settled';
+	if (status === 'Delivered') return 'Delivered';
+	if (status === 'Refunded') return 'Refunded';
+	if (status === 'Expired') return 'Expired';
+	if (status === 'Signed') return 'Waiting for solver delivery';
+	return 'Waiting for status';
 }
 
 type ExecutionPreviewCardProps = {
@@ -73,13 +101,20 @@ export default function ExecutionPreviewCard({
 	if (!preview) {
 		return null;
 	}
+	const isIntentEscrow = preview.quote?.tool === 'lifi-intents';
 
 	return (
 		<div className='mt-3 rounded-2xl border border-black/10 bg-black/[0.03] p-4 text-sm'>
-			<div className='font-semibold text-black'>Execution Preview</div>
+			<div className='font-semibold text-black'>
+				{isIntentEscrow ? 'LI.FI Intents Escrow Preview' : 'Execution Preview'}
+			</div>
 			<div className='mt-3 grid gap-2 text-black/80'>
-				<div>Selected vault: {preview.targetVault}</div>
-				<div>Protocol: {selectedVault?.protocolName ?? 'Unknown'}</div>
+				<div>
+					{isIntentEscrow ? 'Intent action' : 'Selected vault'}: {preview.targetVault}
+				</div>
+				<div>
+					Protocol: {isIntentEscrow ? 'LI.FI Intents' : selectedVault?.protocolName ?? 'Unknown'}
+				</div>
 				<div>Execution kind: {preview.executionKind}</div>
 				<div>
 					Route: {getChainLabel(preview.fromChain)} {'->'}{' '}
@@ -116,12 +151,16 @@ export default function ExecutionPreviewCard({
 					Approval path:{' '}
 					{executionState?.preflight
 						? executionState.preflight.requiresApproval
-							? preview.executionKind === 'cross_chain'
+							? isIntentEscrow
+								? 'Approval required before opening the escrow order'
+								: preview.executionKind === 'cross_chain'
 								? 'Approval required before the route transaction'
 								: 'Approval required before deposit'
 							: 'Allowance already sufficient'
 						: preview.requiresApproval
-							? preview.executionKind === 'cross_chain'
+							? isIntentEscrow
+								? 'Allowance check required before opening the escrow order'
+								: preview.executionKind === 'cross_chain'
 								? 'Allowance check required before the route transaction'
 								: 'Allowance check required before deposit'
 							: 'No approval expected'}
@@ -182,6 +221,38 @@ export default function ExecutionPreviewCard({
 						{executionState.routeMessage}
 					</div>
 				) : null}
+				{isIntentEscrow && executionState?.executionTxHash ? (
+					<div className='rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950'>
+						<div className='font-semibold'>Delivery Tracker</div>
+						<div className='mt-1'>Opened on Base: done</div>
+						<div>
+							Solver delivery:{' '}
+							{executionState.routeReceivingTxHash
+								? 'delivered'
+								: deliveryStatusLabel(executionState.intentOrderStatus)}
+						</div>
+						<div>
+							Settlement:{' '}
+							{executionState.intentOrderStatus === 'Settled' ||
+							executionState.intentSettledAt
+								? 'settled'
+								: 'waiting'}
+						</div>
+						{executionState.intentOrderId ? (
+							<div className='mt-1 break-all text-xs'>
+								Order ID: {executionState.intentOrderId}
+							</div>
+						) : null}
+						{executionState.routeMessage ? (
+							<div className='mt-1 text-xs'>{executionState.routeMessage}</div>
+						) : null}
+						{executionState.intentStatusError ? (
+							<div className='mt-1 text-xs text-amber-800'>
+								{executionState.intentStatusError}
+							</div>
+						) : null}
+					</div>
+				) : null}
 				{executionState?.preflight ? (
 					<div className='rounded-xl border border-black/10 bg-white/70 px-3 py-2 text-black/70'>
 						<div>Allowance sufficient: {executionState.preflight.allowanceSufficient ? 'yes' : 'no'}</div>
@@ -209,7 +280,7 @@ export default function ExecutionPreviewCard({
 						executionState?.status === 'tracking_route'
 					}
 				>
-					Execute With Wallet
+					{isIntentEscrow ? 'Open Intent With Wallet' : 'Execute With Wallet'}
 				</Button>
 				{executionState ? (
 					<span>Status: {renderExecutionStatus(executionState, preview)}</span>
@@ -237,7 +308,11 @@ export default function ExecutionPreviewCard({
 						rel='noreferrer'
 						className='text-blue-700 underline'
 					>
-						{preview.executionKind === 'cross_chain' ? 'Route tx' : 'Deposit tx'}:{' '}
+						{isIntentEscrow
+							? 'Intent open tx'
+							: preview.executionKind === 'cross_chain'
+								? 'Route tx'
+								: 'Deposit tx'}:{' '}
 						{executionState.executionTxHash}
 					</a>
 				</div>
@@ -251,7 +326,8 @@ export default function ExecutionPreviewCard({
 						rel='noreferrer'
 						className='text-blue-700 underline'
 					>
-						Receiving tx: {executionState.routeReceivingTxHash}
+						{isIntentEscrow ? 'Arbitrum delivery tx' : 'Receiving tx'}:{' '}
+						{executionState.routeReceivingTxHash}
 					</a>
 				</div>
 			) : null}

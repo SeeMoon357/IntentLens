@@ -8,7 +8,10 @@ type AgentRequestBody = {
 	chainId?: unknown;
 	walletChainId?: unknown;
 	messages?: unknown;
+	mode?: unknown;
 };
+
+export type AgentChatMode = 'intent_lens' | 'classic_route';
 
 type AgentRequestSuccess = {
 	ok: true;
@@ -17,6 +20,7 @@ type AgentRequestSuccess = {
 		userAddress: string;
 		chainId: number;
 		walletChainId: number;
+		mode: AgentChatMode;
 		messages: Array<{
 			role: 'user' | 'ai';
 			content: string;
@@ -64,6 +68,8 @@ export function normalizeAgentRequest(
 			: explicitChainId ?? DEFAULT_CHAIN_ID;
 
 	const chainId = explicitChainId ?? walletChainId;
+	const mode: AgentChatMode =
+		body?.mode === 'classic_route' ? 'classic_route' : 'intent_lens';
 
 	const messages = Array.isArray(body?.messages)
 		? body.messages
@@ -100,6 +106,7 @@ export function normalizeAgentRequest(
 			userAddress,
 			chainId,
 			walletChainId,
+			mode,
 			messages,
 		},
 	};

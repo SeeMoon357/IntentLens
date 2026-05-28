@@ -10,6 +10,17 @@ export function normalizeExecutionError(error: unknown) {
 		};
 	}
 
+	if (
+		lower.includes('lifi intents escrow') ||
+		lower.includes('li.fi intents escrow')
+	) {
+		return {
+			errorCode: 'intent_escrow_simulation_failed',
+			error:
+				'The LI.FI Intents escrow order did not pass a preflight gas simulation, so IntentLens did not open the wallet. This usually means the order encoding or current quote is not executable as-is; request a fresh quote before spending mainnet funds.',
+		};
+	}
+
 	if (lower.includes('simulation') || lower.includes('gas required exceeds')) {
 		return {
 			errorCode: 'wallet_simulation_failed',

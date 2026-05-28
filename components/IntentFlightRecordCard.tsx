@@ -6,6 +6,7 @@ import type { IntentFlightRecord, IntentFlightStep } from '@/lib/lifiIntents';
 
 type IntentFlightRecordCardProps = {
 	record?: IntentFlightRecord;
+	onOpenClassicRoute?: () => void;
 };
 
 function statusIcon(status: IntentFlightStep['status']) {
@@ -30,6 +31,7 @@ function formatJson(value: unknown): string {
 
 export default function IntentFlightRecordCard({
 	record,
+	onOpenClassicRoute,
 }: IntentFlightRecordCardProps) {
 	if (!record) {
 		return null;
@@ -90,6 +92,15 @@ export default function IntentFlightRecordCard({
 				<p className='mt-2 text-xs leading-5 text-slate-600'>
 					{record.classicRouteComparison}
 				</p>
+				{record.classicRoutePrompt && onOpenClassicRoute ? (
+					<button
+						type='button'
+						className='mt-3 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50'
+						onClick={onOpenClassicRoute}
+					>
+						Open classic route preview
+					</button>
+				) : null}
 			</details>
 
 			<details className='mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2'>

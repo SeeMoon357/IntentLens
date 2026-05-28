@@ -188,3 +188,163 @@ test('requestMainnetIntentFlight builds and requests a mainnet flight record', a
 	assert.equal(record.status, 'quote_ready');
 	assert.deepEqual(record.orderPreview, { quotes: [{ id: 'mainnet-quote' }] });
 });
+
+test('buildIntentFlightRecord adds run-specific builder education and a classic prompt', async () => {
+	const { buildIntentFlightRecord } = await loadLifiIntentsModule();
+
+	const record = buildIntentFlightRecord({
+		goal: {
+			asset: 'USDC',
+			amount: 0.02,
+			sourceChain: 8453,
+			targetChain: 42161,
+			objective: 'best_received',
+			userAddress: '0x1111111111111111111111111111111111111111',
+		},
+		quoteRequest: {
+			user: '0x00010000022105141111111111111111111111111111111111111111',
+			intent: {
+				intentType: 'oif-swap',
+				inputs: [{
+					user: '0x00010000022105141111111111111111111111111111111111111111',
+					asset: '0x0001000002210514833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+					amount: '20000',
+				}],
+				outputs: [{
+					receiver: '0x0001000002A4B1141111111111111111111111111111111111111111',
+					asset: '0x0001000002A4B114af88d065e77c8cC2239327C5EDb3A432268e5831',
+					amount: null,
+				}],
+				swapType: 'exact-input',
+			},
+			supportedTypes: ['oif-escrow-v0'],
+		},
+		quoteResult: {
+			success: true,
+			status: 200,
+			data: {
+				quotes: [{
+					validUntil: 1779951090,
+					quoteId: 'quote_builder_education',
+					preview: {
+						inputs: [{ amount: '20000' }],
+						outputs: [{ amount: '9999' }],
+					},
+				}],
+			},
+		},
+	});
+
+	assert.match(
+		record.steps.find((step) => step.key === 'parse_goal')?.summary ?? '',
+		/0\.02 USDC/i,
+	);
+	assert.match(
+		record.steps.find((step) => step.key === 'request_solver_quote')?.summary ?? '',
+		/quote_builder_education/i,
+	);
+	assert.match(
+		record.steps.find((step) => step.key === 'order_preview')?.summary ?? '',
+		/0\.009999 USDC/i,
+	);
+	assert.match(record.educationSummary, /InputSettlerEscrow/i);
+	assert.match(record.classicRouteComparison, /route steps/i);
+	assert.match(record.classicRoutePrompt, /classic route/i);
+});
+
+test('buildIntentExecutionPreview turns the best quote preview into an escrow open transaction', async () => {
+	const { buildIntentExecutionPreview } = await loadLifiIntentsModule();
+
+	const preview = buildIntentExecutionPreview({
+		goal: {
+			asset: 'USDC',
+			amount: 0.02,
+			sourceChain: 8453,
+			targetChain: 42161,
+			objective: 'best_received',
+			userAddress: '0x1111111111111111111111111111111111111111',
+		},
+		quoteResult: {
+			success: true,
+			status: 200,
+			data: {
+				quotes: [{
+					order: null,
+					validUntil: 1779951090,
+					quoteId: 'quote_test',
+					preview: {
+						inputs: [{
+							user: '0x00010000022105141111111111111111111111111111111111111111',
+							asset: '0x0001000002210514833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+							amount: '20000',
+						}],
+						outputs: [{
+							receiver: '0x0001000002A4B1141111111111111111111111111111111111111111',
+							asset: '0x0001000002A4B114af88d065e77c8cC2239327C5EDb3A432268e5831',
+							amount: '9999',
+						}],
+					},
+					metadata: { exclusiveFor: null },
+					partialFill: false,
+					failureHandling: 'refund-automatic',
+				}],
+			},
+		},
+	});
+
+	assert.equal(preview?.canExecute, true);
+	assert.equal(preview?.fromChain, 8453);
+	assert.equal(preview?.toChain, 42161);
+	assert.equal(preview?.approvalAddress, '0x000025c3226C00B2Cdc200005a1600509f4e00C0');
+	assert.equal(preview?.quote?.action?.fromAmount, '20000');
+	assert.equal(preview?.quote?.estimate?.toAmount, '9999');
+	assert.equal(preview?.quote?.transactionRequest?.to, '0x000025c3226C00B2Cdc200005a1600509f4e00C0');
+	assert.match(preview?.quote?.transactionRequest?.data ?? '', /^0x7515fd56/);
+});
+
+test('requestMainnetIntentExecutionPreview fetches a fresh quote and executable open calldata', async () => {
+	const { requestMainnetIntentExecutionPreview } = await loadLifiIntentsModule();
+	const seenRequests = [];
+
+	const { record, preview } = await requestMainnetIntentExecutionPreview(
+		{
+			asset: 'USDC',
+			amount: 0.015,
+			sourceChain: 8453,
+			targetChain: 42161,
+			objective: 'best_received',
+			userAddress: '0x1111111111111111111111111111111111111111',
+		},
+		{
+			async requestQuote(request) {
+				seenRequests.push(request);
+				return {
+					success: true,
+					status: 200,
+					data: {
+						quotes: [{
+							validUntil: 1779951090,
+							quoteId: 'quote_fresh',
+							preview: {
+								inputs: [{
+									amount: '15000',
+								}],
+								outputs: [{
+									amount: '7499',
+								}],
+							},
+						}],
+					},
+				};
+			},
+		},
+	);
+
+	assert.equal(seenRequests.length, 1);
+	assert.equal(seenRequests[0].intent.inputs[0].amount, '15000');
+	assert.equal(record.status, 'quote_ready');
+	assert.equal(preview?.quote?.transactionId, 'quote_fresh');
+	assert.equal(preview?.quote?.action?.fromAmount, '15000');
+	assert.equal(preview?.quote?.estimate?.toAmount, '7499');
+	assert.match(preview?.quote?.transactionRequest?.data ?? '', /^0x7515fd56/);
+});

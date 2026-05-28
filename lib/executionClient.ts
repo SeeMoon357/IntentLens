@@ -14,6 +14,13 @@ import {
 	type LifiStatusResponse,
 	type LifiRouteStatus,
 } from './lifiStatus';
+import { requestMainnetIntentExecutionPreview } from './lifiIntents';
+import {
+	extractIntentOrderIdFromLogs,
+	fetchLifiIntentOrderStatus,
+	type LifiIntentOrderStatus,
+	type NormalizedLifiIntentStatus,
+} from './lifiIntentStatus';
 import { wagmiConfig } from './wagmi.config';
 
 export type ClientExecutionState = {
@@ -40,6 +47,12 @@ export type ClientExecutionState = {
 	routeReceivingTokenSymbol?: string;
 	routeReceivingTxHash?: string;
 	routeReceivingExplorerLink?: string;
+	intentOrderId?: string;
+	intentOrderStatus?: LifiIntentOrderStatus;
+	intentOrderIdentifier?: string;
+	intentDeliveredAt?: string;
+	intentSettledAt?: string;
+	intentStatusError?: string;
 	errorCode?: string;
 	error?: string;
 	completedAt?: string;
@@ -57,6 +70,8 @@ type QuoteTransactionRequest = {
 const RECEIPT_TIMEOUT_MS = 120_000;
 const ROUTE_STATUS_POLL_INTERVAL_MS = 10_000;
 const ROUTE_STATUS_TIMEOUT_MS = 300_000;
+const INTENT_STATUS_POLL_INTERVAL_MS = 5_000;
+const INTENT_STATUS_TIMEOUT_MS = 180_000;
 const lifiClient = createLifiClient();
 
 function toExplorerLink(chainId: number, hash: string) {
@@ -102,6 +117,71 @@ function getRouteBridge(preview: ExecutionPreview): string | undefined {
 	)?.tool;
 }
 
+function isIntentEscrowPreview(preview: ExecutionPreview): boolean {
+	return preview.quote?.tool === 'lifi-intents';
+}
+
+async function refreshIntentEscrowPreview(input: {
+	preview: ExecutionPreview;
+	walletAddress: Address;
+}): Promise<ExecutionPreview> {
+	const amount = Number(input.preview.fromAmount);
+	if (!Number.isFinite(amount) || amount <= 0) {
+		throw new Error('Cannot refresh LI.FI Intents quote because the amount is invalid.');
+	}
+
+	const { record, preview } = await requestMainnetIntentExecutionPreview({
+		asset: 'USDC',
+		amount,
+		sourceChain: input.preview.fromChain,
+		targetChain: input.preview.toChain,
+		objective: 'best_received',
+		userAddress: input.walletAddress,
+	});
+
+	if (!preview) {
+		const error = record.quoteResult.success
+			? 'LI.FI Intents did not return an executable fresh order.'
+			: record.quoteResult.error;
+		throw new Error(`Fresh LI.FI Intents quote failed: ${error}`);
+	}
+
+	return preview;
+}
+
+async function preflightIntentEscrowOpen(input: {
+	publicClient: NonNullable<ReturnType<typeof getPublicClient>>;
+	account: Address;
+	request: QuoteTransactionRequest;
+	nativeBalance: bigint;
+}) {
+	if (!input.request.to || !input.request.data) {
+		throw new Error('LI.FI Intents escrow transaction data is incomplete.');
+	}
+
+	let gas: bigint;
+	try {
+		gas = await input.publicClient.estimateGas({
+			account: input.account,
+			to: input.request.to as Address,
+			data: input.request.data as Hex,
+			value: input.request.value ? BigInt(input.request.value) : BigInt(0),
+		});
+	} catch {
+		throw new Error(
+			'LI.FI Intents escrow open transaction reverted during gas simulation.',
+		);
+	}
+
+	const gasPrice = await input.publicClient.getGasPrice();
+	const estimatedCost = gas * gasPrice;
+	if (input.nativeBalance < estimatedCost) {
+		throw new Error(
+			'Not enough Base ETH is available for the LI.FI Intents escrow open transaction.',
+		);
+	}
+}
+
 function buildRouteTrackingState(input: {
 	status: ClientExecutionState['status'];
 	chainId: number;
@@ -144,6 +224,82 @@ function buildRouteTrackingState(input: {
 		errorCode: input.errorCode,
 		completedAt: input.completedAt,
 	} satisfies ClientExecutionState;
+}
+
+function applyIntentStatusToState(input: {
+	baseState: ClientExecutionState;
+	status: NormalizedLifiIntentStatus;
+}) {
+	return {
+		...input.baseState,
+		intentOrderId: input.status.orderId ?? input.baseState.intentOrderId,
+		intentOrderStatus: input.status.orderStatus,
+		intentOrderIdentifier: input.status.orderIdentifier ?? undefined,
+		intentDeliveredAt: input.status.deliveredAt ?? undefined,
+		intentSettledAt: input.status.settledAt ?? undefined,
+		routeReceivingTxHash: input.status.deliveredTxHash ?? undefined,
+		routeReceivingExplorerLink: input.status.deliveryExplorerLink ?? undefined,
+		routeMessage:
+			input.status.orderStatus === 'Settled'
+				? 'LI.FI Intents order settled.'
+				: input.status.deliveredTxHash
+					? 'Solver delivered the target-chain USDC.'
+					: 'Opened on Base, waiting for solver delivery.',
+	} satisfies ClientExecutionState;
+}
+
+async function trackIntentOrderStatus(input: {
+	orderId: string;
+	baseState: ClientExecutionState;
+	onStateChange: (state: ClientExecutionState) => void;
+}) {
+	const startedAt = Date.now();
+	let lastState: ClientExecutionState = {
+		...input.baseState,
+		intentOrderId: input.orderId,
+		intentOrderStatus: 'Signed' as const,
+		routeMessage: 'Opened on Base, waiting for solver delivery.',
+	};
+	input.onStateChange(lastState);
+
+	while (Date.now() - startedAt < INTENT_STATUS_TIMEOUT_MS) {
+		try {
+			const status = await fetchLifiIntentOrderStatus(input.orderId);
+			lastState = applyIntentStatusToState({
+				baseState: lastState,
+				status,
+			});
+			input.onStateChange(lastState);
+
+			if (status.deliveredTxHash || status.settledTxHash) {
+				return;
+			}
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: 'LI.FI Intents status is unavailable. Check again later.';
+			const isNotIndexedYet = /status 404/i.test(message);
+			lastState = {
+				...lastState,
+				intentStatusError: isNotIndexedYet ? undefined : message,
+				routeMessage: isNotIndexedYet
+					? 'Opened on Base. LI.FI Intents status is not indexed yet; still polling.'
+					: 'Opened on Base. LI.FI Intents status is unavailable; check again later.',
+			};
+			input.onStateChange(lastState);
+		}
+
+		await sleep(INTENT_STATUS_POLL_INTERVAL_MS);
+	}
+
+	input.onStateChange({
+		...lastState,
+		routeMessage:
+			lastState.routeReceivingTxHash
+				? lastState.routeMessage
+				: 'Opened on Base. Solver delivery is still pending.',
+	});
 }
 
 async function trackCrossChainRouteStatus(input: {
@@ -232,6 +388,7 @@ export async function executePreviewTransaction(input: {
 	onStateChange: (state: ClientExecutionState) => void;
 }) {
 	const chainId = input.preview.fromChain as (typeof wagmiConfig.chains)[number]['id'];
+	let activePreview = input.preview;
 	let preflight: ExecutionPreflightResult | undefined;
 	let approvalTxHash: Hex | undefined;
 	let executionTxHash: Hex | undefined;
@@ -379,20 +536,71 @@ export async function executePreviewTransaction(input: {
 			});
 		}
 
-		const request = requestFromPreview(input.preview);
+		if (isIntentEscrowPreview(activePreview)) {
+			activePreview = await refreshIntentEscrowPreview({
+				preview: activePreview,
+				walletAddress,
+			});
+
+			const refreshedTokenAddress = activePreview.quote?.action?.fromToken?.address;
+			const refreshedApprovalAddress = activePreview.approvalAddress;
+			let refreshedAllowance = BigInt(0);
+			if (refreshedTokenAddress && refreshedApprovalAddress) {
+				refreshedAllowance = (await publicClient.readContract({
+					address: refreshedTokenAddress as Address,
+					abi: erc20Abi,
+					functionName: 'allowance',
+					args: [walletAddress, refreshedApprovalAddress as Address],
+				})) as bigint;
+			}
+
+			preflight = runExecutionPreflight({
+				preview: {
+					fromChain: activePreview.fromChain,
+					toChain: activePreview.toChain,
+					quote: activePreview.quote,
+				},
+				wallet: {
+					address: walletAddress,
+					chainId,
+					nativeBalance,
+					allowance: refreshedAllowance,
+				},
+			});
+
+			if (!preflight.ready) {
+				throw new Error(
+					'Fresh LI.FI Intents quote is not executable after approval. Request a new quote and try again.',
+				);
+			}
+
+			input.onStateChange({
+				status: approvalTxHash ? 'approved' : 'preflighting',
+				approvalTxHash,
+				...toHashes({ approvalTxHash, chainId }),
+				preflight,
+				routeMessage: approvalTxHash
+					? 'Fresh LI.FI Intents quote prepared after approval.'
+					: 'Fresh LI.FI Intents quote prepared before escrow open.',
+			});
+		}
+
+		const request = requestFromPreview(activePreview);
 		if (!request?.to || !request?.data) {
 			throw new Error('LI.FI quote is missing transactionRequest data.');
 		}
 
-		input.onStateChange({
-			status: 'awaiting_wallet_execution',
-			approvalTxHash,
-			...toHashes({ approvalTxHash, chainId }),
-			preflight,
-		});
+		if (isIntentEscrowPreview(activePreview)) {
+			await preflightIntentEscrowOpen({
+				publicClient,
+				account: walletClient.account.address,
+				request,
+				nativeBalance,
+			});
+		}
 
 		input.onStateChange({
-			status: 'submitting',
+			status: 'awaiting_wallet_execution',
 			approvalTxHash,
 			...toHashes({ approvalTxHash, chainId }),
 			preflight,
@@ -437,7 +645,11 @@ export async function executePreviewTransaction(input: {
 		});
 		const succeeded = receipt.status === 'success';
 
-		if (succeeded && input.preview.executionKind === 'cross_chain') {
+		if (
+			succeeded &&
+			activePreview.executionKind === 'cross_chain' &&
+			!isIntentEscrowPreview(activePreview)
+		) {
 			input.onStateChange(
 				buildRouteTrackingState({
 					status: 'tracking_route',
@@ -456,7 +668,7 @@ export async function executePreviewTransaction(input: {
 			);
 
 			await trackCrossChainRouteStatus({
-				preview: input.preview,
+				preview: activePreview,
 				chainId,
 				approvalTxHash,
 				executionTxHash,
@@ -471,7 +683,7 @@ export async function executePreviewTransaction(input: {
 			};
 		}
 
-		input.onStateChange({
+		const confirmedState = {
 			status: succeeded ? 'confirmed' : 'failed',
 			approvalTxHash,
 			executionTxHash,
@@ -479,8 +691,33 @@ export async function executePreviewTransaction(input: {
 			preflight,
 			completedAt: new Date().toISOString(),
 			errorCode: succeeded ? undefined : 'onchain_revert',
-			error: succeeded ? undefined : 'Deposit transaction reverted on chain.',
-		});
+			error: succeeded
+				? undefined
+				: isIntentEscrowPreview(activePreview)
+					? 'Intent open transaction reverted on chain.'
+					: 'Deposit transaction reverted on chain.',
+		} satisfies ClientExecutionState;
+
+		input.onStateChange(confirmedState);
+
+		if (succeeded && isIntentEscrowPreview(activePreview)) {
+			const orderId = extractIntentOrderIdFromLogs(receipt.logs);
+			if (orderId) {
+				await trackIntentOrderStatus({
+					orderId,
+					baseState: confirmedState,
+					onStateChange: input.onStateChange,
+				});
+			} else {
+				input.onStateChange({
+					...confirmedState,
+					intentStatusError:
+						'Intent order id was not found in the Base open transaction logs.',
+					routeMessage:
+						'Opened on Base. Intent order id was not found for delivery tracking.',
+				});
+			}
+		}
 
 		return {
 			hash: executionTxHash,

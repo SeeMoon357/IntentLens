@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
-		const { message, userAddress, walletChainId, messages } =
+		const { message, userAddress, walletChainId, mode, messages } =
 			normalizedRequest.value;
 		const encoder = new TextEncoder();
 
@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
 						userMessage: message,
 						userAddress,
 						walletChainId,
+						mode,
 						messages,
 					})) {
 						send(chunk);
