@@ -1,0 +1,109 @@
+'use client';
+
+import { CheckCircle2, CircleDashed, XCircle } from 'lucide-react';
+import { getChainLabel } from '@/lib/businessChains';
+import type { IntentFlightRecord, IntentFlightStep } from '@/lib/lifiIntents';
+
+type IntentFlightRecordCardProps = {
+	record?: IntentFlightRecord;
+};
+
+function statusIcon(status: IntentFlightStep['status']) {
+	if (status === 'completed') {
+		return <CheckCircle2 className='h-4 w-4 text-emerald-600' />;
+	}
+
+	if (status === 'failed') {
+		return <XCircle className='h-4 w-4 text-rose-600' />;
+	}
+
+	return <CircleDashed className='h-4 w-4 text-slate-400' />;
+}
+
+function formatJson(value: unknown): string {
+	try {
+		return JSON.stringify(value, null, 2);
+	} catch {
+		return String(value);
+	}
+}
+
+export default function IntentFlightRecordCard({
+	record,
+}: IntentFlightRecordCardProps) {
+	if (!record) {
+		return null;
+	}
+
+	const fromChain = getChainLabel(record.goal.sourceChain);
+	const toChain = getChainLabel(record.goal.targetChain);
+	const quoteReady = record.status === 'quote_ready';
+
+	return (
+		<div className='mt-3 rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm'>
+			<div className='flex flex-wrap items-start justify-between gap-3'>
+				<div>
+					<div className='text-xs font-semibold uppercase tracking-wide text-slate-500'>
+						IntentLens Flight Recorder
+					</div>
+					<div className='mt-1 text-base font-semibold text-slate-950'>
+						{record.goal.amount ?? 'Unknown amount'} {record.goal.asset}: {fromChain} {'->'} {toChain}
+					</div>
+				</div>
+				<div
+					className={`rounded-full px-3 py-1 text-xs font-semibold ${
+						quoteReady
+							? 'bg-emerald-50 text-emerald-700'
+							: 'bg-amber-50 text-amber-700'
+					}`}
+				>
+					{quoteReady ? 'Mainnet quote ready' : 'Quote unavailable'}
+				</div>
+			</div>
+
+			<div className='mt-4 grid gap-2'>
+				{record.steps.map((step) => (
+					<div
+						key={step.key}
+						className='grid grid-cols-[auto_1fr] gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2'
+					>
+						<div className='pt-0.5'>{statusIcon(step.status)}</div>
+						<div>
+							<div className='font-medium text-slate-950'>{step.title}</div>
+							<div className='mt-1 text-xs leading-5 text-slate-600'>
+								{step.summary}
+							</div>
+						</div>
+					</div>
+				))}
+			</div>
+
+			<div className='mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700'>
+				<div className='font-medium text-slate-950'>What happened in this run</div>
+				<p className='mt-1 text-xs leading-5'>{record.educationSummary}</p>
+			</div>
+
+			<details className='mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2'>
+				<summary className='cursor-pointer text-xs font-semibold text-slate-700'>
+					Compared with classic LI.FI route flow
+				</summary>
+				<p className='mt-2 text-xs leading-5 text-slate-600'>
+					{record.classicRouteComparison}
+				</p>
+			</details>
+
+			<details className='mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2'>
+				<summary className='cursor-pointer text-xs font-semibold text-slate-700'>
+					Quote / order preview payload
+				</summary>
+				<pre className='mt-2 max-h-72 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100'>
+					{formatJson(record.orderPreview ?? record.quoteResult)}
+				</pre>
+			</details>
+
+			<div className='mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900'>
+				Mainnet safety: IntentLens never signs or spends automatically. Funds move only if you manually confirm a wallet signature.
+			</div>
+		</div>
+	);
+}
