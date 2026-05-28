@@ -16,13 +16,13 @@ test('resolveWalletChainId falls back to Base for unsupported chains', async () 
 	assert.equal(resolveWalletChainId(10), 8453);
 });
 
-test('detectIntentFromMessage identifies earn deposit intent from natural language', async () => {
+test('detectIntentFromMessage treats vault language as Intents-first', async () => {
 	const { detectIntentFromMessage } = await loadPlannerRuntimeModule();
 
 	assert.deepEqual(
 		detectIntentFromMessage('put my USDC into the safest vault above 5% APY on Arbitrum'),
 		{
-			intent: 'earn.deposit',
+			intent: 'intent.transfer',
 			actionMode: 'recommend',
 		},
 	);
@@ -40,7 +40,7 @@ test('detectIntentFromMessage identifies LI.FI Intents transfer requests', async
 	);
 });
 
-test('buildPlannerFallback extracts amount, target chain, threshold, and risk preference', async () => {
+test('buildPlannerFallback keeps vault requests on the Intents-first path', async () => {
 	const { buildPlannerFallback } = await loadPlannerRuntimeModule();
 
 	const plan = buildPlannerFallback({
@@ -48,7 +48,7 @@ test('buildPlannerFallback extracts amount, target chain, threshold, and risk pr
 		walletChainId: 1,
 	});
 
-	assert.equal(plan.intent, 'earn.deposit');
+	assert.equal(plan.intent, 'intent.transfer');
 	assert.equal(plan.asset, 'USDC');
 	assert.equal(plan.amount, 500);
 	assert.equal(plan.sourceChain, 1);
@@ -79,7 +79,7 @@ test('buildPlannerFallback preserves cross-chain source and target chains', asyn
 		walletChainId: 8453,
 	});
 
-	assert.equal(plan.intent, 'earn.deposit');
+	assert.equal(plan.intent, 'intent.transfer');
 	assert.equal(plan.sourceChain, 8453);
 	assert.equal(plan.targetChain, 42161);
 });
@@ -109,7 +109,7 @@ test('buildPlannerFallback recognizes Polygon as a supported target chain', asyn
 		walletChainId: 8453,
 	});
 
-	assert.equal(plan.intent, 'earn.deposit');
+	assert.equal(plan.intent, 'intent.transfer');
 	assert.equal(plan.sourceChain, 8453);
 	assert.equal(plan.targetChain, 137);
 });
@@ -122,7 +122,7 @@ test('buildPlannerFallback keeps Base as source for Base to Polygon requests', a
 		walletChainId: 8453,
 	});
 
-	assert.equal(plan.intent, 'earn.deposit');
+	assert.equal(plan.intent, 'intent.transfer');
 	assert.equal(plan.sourceChain, 8453);
 	assert.equal(plan.targetChain, 137);
 });
@@ -135,7 +135,7 @@ test('extractPlannerPayload accepts valid JSON planner output and normalizes cha
 		8453,
 	);
 
-	assert.equal(plan.intent, 'earn.deposit');
+	assert.equal(plan.intent, 'intent.transfer');
 	assert.equal(plan.sourceChain, 8453);
 	assert.equal(plan.targetChain, 42161);
 	assert.equal(plan.mode, 'execute');
@@ -155,4 +155,57 @@ test('extractPlannerPayload treats zero or negative amounts as missing', async (
 
 	assert.equal(zeroAmountPlan.amount, null);
 	assert.equal(negativeAmountPlan.amount, null);
+});
+
+test('mergeIntentPlanFromUserText lets deterministic user text override bad planner fields', async () => {
+	const { mergeIntentPlanFromUserText } = await loadPlannerRuntimeModule();
+
+	const plan = mergeIntentPlanFromUserText({
+		userMessage: 'Move 0.01 USDC from Base to Arbitrum with best received amount',
+		walletChainId: 8453,
+		plannerPlan: {
+			intent: 'intent.transfer',
+			asset: 'USDC',
+			amount: null,
+			sourceChain: 8453,
+			targetChain: 8453,
+			minApy: null,
+			riskPreference: 'medium',
+			objective: 'best_received',
+			needsConfirmation: true,
+			mode: 'recommend',
+		},
+	});
+
+	assert.equal(plan.intent, 'intent.transfer');
+	assert.equal(plan.amount, 0.01);
+	assert.equal(plan.sourceChain, 8453);
+	assert.equal(plan.targetChain, 42161);
+	assert.equal(plan.objective, 'best_received');
+});
+
+test('mergeIntentPlanFromUserText handles compact USDC amount spelling', async () => {
+	const { mergeIntentPlanFromUserText } = await loadPlannerRuntimeModule();
+
+	const plan = mergeIntentPlanFromUserText({
+		userMessage: 'Move 0.01USDC from Base to Arbitrum',
+		walletChainId: 8453,
+		plannerPlan: {
+			intent: 'intent.transfer',
+			asset: 'USDC',
+			amount: null,
+			sourceChain: 8453,
+			targetChain: 8453,
+			minApy: null,
+			riskPreference: 'medium',
+			objective: 'best_received',
+			needsConfirmation: true,
+			mode: 'recommend',
+		},
+	});
+
+	assert.equal(plan.intent, 'intent.transfer');
+	assert.equal(plan.amount, 0.01);
+	assert.equal(plan.sourceChain, 8453);
+	assert.equal(plan.targetChain, 42161);
 });

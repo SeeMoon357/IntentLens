@@ -147,48 +147,23 @@ export function detectIntentFromMessage(message: string): {
 		? 'execute'
 		: 'recommend';
 
-	const isRouteBasedEarnRequest = includesAny(lowered, [
-		'vault',
-		'apy',
-		'yield',
-		'deposit',
-		'put my',
-		'put ',
-		'earn',
-		'safest',
-	]);
-
 	if (
-		!isRouteBasedEarnRequest &&
 		includesAny(lowered, [
-			'intent',
-			'intents',
-			'best received',
-			'best outcome',
-			'send ',
-			'move ',
-			'transfer ',
-			'swap ',
+			'classic route',
+			'old route',
+			'legacy earn',
+			'use legacy',
+			'use classic',
 		])
 	) {
-		return { intent: 'intent.transfer', actionMode };
-	}
-
-	if (
-		isRouteBasedEarnRequest
-	) {
 		return { intent: 'earn.deposit', actionMode };
-	}
-
-	if (includesAny(lowered, ['bridge', 'swap from', 'transfer from'])) {
-		return { intent: 'bridge', actionMode };
 	}
 
 	if (includesAny(lowered, ['monitor', 'positions', 'portfolio', 'balance'])) {
 		return { intent: 'monitor', actionMode };
 	}
 
-	return { intent: 'unknown', actionMode };
+	return { intent: 'intent.transfer', actionMode };
 }
 
 function parseObjective(message: string): PlannerObjective {
@@ -268,12 +243,11 @@ export function extractPlannerPayload(
 				? parsed.riskPreference
 				: 'medium';
 		const intent: PlannerIntent =
-			parsed.intent === 'earn.deposit' ||
 			parsed.intent === 'intent.transfer' ||
 			parsed.intent === 'bridge' ||
 			parsed.intent === 'monitor'
 				? parsed.intent
-				: 'unknown';
+				: fallback.intent;
 		const objective: PlannerObjective =
 			parsed.objective === 'fastest' || parsed.objective === 'lowest_cost'
 				? parsed.objective
@@ -300,4 +274,39 @@ export function extractPlannerPayload(
 	} catch {
 		return fallback;
 	}
+}
+
+export function mergeIntentPlanFromUserText(input: {
+	userMessage: string;
+	walletChainId: number | null | undefined;
+	plannerPlan: PlannerOutput;
+}): PlannerOutput {
+	const lowered = input.userMessage.trim().toLowerCase();
+	const localPlan = buildPlannerFallback({
+		message: input.userMessage,
+		walletChainId: input.walletChainId,
+	});
+	const localAmount = parseAmount(lowered);
+	const localSourceChain = parseSourceChain(lowered);
+	const localTargetChain = parseTargetChain(lowered) ?? parseChainByName(lowered);
+
+	return {
+		...input.plannerPlan,
+		intent:
+			localPlan.intent === 'intent.transfer' || input.plannerPlan.intent === 'unknown'
+				? localPlan.intent
+				: input.plannerPlan.intent,
+		asset: 'USDC',
+		amount: localAmount ?? input.plannerPlan.amount,
+		sourceChain:
+			localSourceChain ??
+			input.plannerPlan.sourceChain ??
+			localPlan.sourceChain,
+		targetChain:
+			localTargetChain ??
+			input.plannerPlan.targetChain ??
+			localPlan.targetChain,
+		objective: input.plannerPlan.objective ?? localPlan.objective,
+		mode: input.plannerPlan.mode ?? localPlan.mode,
+	};
 }

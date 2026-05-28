@@ -6,12 +6,13 @@
 import { LanguageModel } from 'ai';
 import { createOpenAI, openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
-import { deepseek } from '@ai-sdk/deepseek';
 import { alibaba } from '@ai-sdk/alibaba';
 import { moonshotai } from '@ai-sdk/moonshotai';
 import { zhipu } from 'zhipu-ai-provider';
 import type { AgentModelConfig, SupportedModel } from './agentConfig';
 import { getQwenBaseUrl } from './agentRuntime';
+
+const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 
 function asLanguageModel(model: unknown): LanguageModel {
 	return model as LanguageModel;
@@ -42,8 +43,15 @@ export function getModelFromConfig(config: AgentModelConfig): LanguageModel {
 			return asLanguageModel(openai(model));
 		case 'anthropic':
 			return asLanguageModel(anthropic(model));
-		case 'deepseek':
+		case 'deepseek': {
+			const deepseek = createOpenAI({
+				apiKey,
+				baseURL: process.env.DEEPSEEK_BASE_URL || DEFAULT_DEEPSEEK_BASE_URL,
+				compatibility: 'compatible',
+				name: 'deepseek',
+			});
 			return asLanguageModel(deepseek(model));
+		}
 		case 'alibaba':
 			return asLanguageModel(alibaba(model));
 		case 'zhipu':

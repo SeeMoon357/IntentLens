@@ -13,23 +13,22 @@ const promptItems: PromptsProps['items'] = [
 	{
 		key: '1',
 		icon: <BulbOutlined style={{ color: '#FFD700' }} />,
-		description: 'Find the best available USDC vault on Base',
+		description: 'Move 10 USDC from Base to Arbitrum with best received amount',
 	},
 	{
 		key: '2',
 		icon: <InfoCircleOutlined style={{ color: '#1890FF' }} />,
-		description:
-			'Go ahead and deposit 0.1 USDC into the best available USDC vault on Base',
+		description: 'Send 5 USDC from Base to Arbitrum using LI.FI Intents',
 	},
 	{
 		key: '3',
 		icon: <CheckCircleOutlined style={{ color: '#52C41A' }} />,
-		description: 'Move 0.01USDC from Base into the best USDC vault on Arbitrum',
+		description: 'Preview a Base USDC to Arbitrum USDC intent order',
 	},
 	{
 		key: '4',
 		icon: <InfoCircleOutlined style={{ color: '#722ED1' }} />,
-		description: 'Move 10 USDC from Base into the best USDC vault on Arbitrum',
+		description: 'Explain LI.FI Intents for a Base to Arbitrum USDC transfer',
 	},
 ];
 
@@ -37,7 +36,7 @@ interface PromptProps {
 	onItemClick?: (prompt: string) => void;
 }
 
-const TYPEWRITER_TEXT = 'Ask the Avalokita';
+const TYPEWRITER_TEXT = 'Ask IntentLens';
 
 function TypewriterTitle() {
 	const [displayText, setDisplayText] = useState('');

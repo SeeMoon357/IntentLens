@@ -1,17 +1,14 @@
 import { streamText } from 'ai';
 import { getAgentConfig } from '@/lib/agentConfig';
 import { getModelFromConfig } from '@/lib/agentClient';
-import {
-	formatSupportedBusinessChainNames,
-	formatSupportedBusinessChainsWithIds,
-} from '@/lib/businessChains';
+import { formatSupportedBusinessChainsWithIds } from '@/lib/businessChains';
 import { buildPlannerPrompt } from '@/lib/plannerPrompt';
 import {
 	buildPlannerFallback,
 	detectIntentFromMessage,
 	extractPlannerPayload,
+	mergeIntentPlanFromUserText,
 	type PlannerOutput,
-	type SupportedWalletChainId,
 } from '@/lib/plannerRuntime';
 import {
 	requestMainnetIntentFlight,
@@ -21,7 +18,6 @@ import {
 	buildWalletContextResponse,
 	isWalletContextQuestion,
 } from '@/lib/walletContext';
-import { earningAgentStream, type EarningStreamChunk } from './earning';
 
 type MainAgentInput = {
 	userMessage: string;
@@ -36,10 +32,9 @@ export type MainAgentStreamChunk =
 	| { type: 'error'; content: string }
 	| { type: 'plan'; plan: PlannerOutput }
 	| { type: 'intent_flight_record'; record: IntentFlightRecord }
-	| EarningStreamChunk
 	| {
 			type: 'done';
-			intent: 'earn' | 'intent' | 'bridge' | 'monitor' | 'unknown';
+			intent: 'intent' | 'bridge' | 'monitor' | 'unknown';
 			chainId: number;
 	  };
 
@@ -59,15 +54,16 @@ async function* streamPlannerText(
 			temperature: 0,
 			maxTokens: 220,
 			system: [
-				'You are the planner for a DeFi earn application.',
+				'You are the planner for an Intents-first LI.FI education application.',
 				'Return JSON only.',
-				'Supported intents: earn.deposit, intent.transfer, bridge, monitor, unknown.',
+				'Supported intents: intent.transfer, bridge, monitor, unknown.',
 				'Supported asset in this version: USDC.',
 				`Supported chains in this version: ${formatSupportedBusinessChainsWithIds()}.`,
-				'Use intent.transfer for Base USDC -> Arbitrum USDC transfer/swap/send requests that ask for LI.FI Intents or best received amount.',
+				'Default to intent.transfer for USDC requests, including requests that mention vaults, earn, APY, or deposits.',
+				'This product is an Intents-first education demo. Do not route initial user requests into Earn tools.',
 				'Use execute mode only when the user clearly asks to proceed now.',
 				'Schema:',
-				'{"intent":"earn.deposit|intent.transfer|bridge|monitor|unknown","asset":"USDC","amount":500,"sourceChain":8453,"targetChain":42161,"minApy":null,"riskPreference":"low|medium|high","objective":"best_received|fastest|lowest_cost","needsConfirmation":true,"mode":"recommend|execute"}',
+				'{"intent":"intent.transfer|bridge|monitor|unknown","asset":"USDC","amount":500,"sourceChain":8453,"targetChain":42161,"minApy":null,"riskPreference":"low|medium|high","objective":"best_received|fastest|lowest_cost","needsConfirmation":true,"mode":"recommend|execute"}',
 			].join('\n'),
 			prompt: buildPlannerPrompt(input),
 		});
@@ -87,25 +83,24 @@ async function* streamPlannerText(
 function unsupportedIntentMessage(intent: 'bridge' | 'monitor'): string {
 	if (intent === 'bridge') {
 		return [
-			'## Bridge 暂未开放',
-			'当前版本先把 Earn 主链路做稳，Bridge 会在后续阶段恢复。',
-			'你现在可以这样问：Find the best USDC vault on Base',
+			'## Bridge is outside this MVP',
+			'IntentLens currently focuses on LI.FI Intents education for Base USDC -> Arbitrum USDC.',
+			'Try: Move 10 USDC from Base to Arbitrum with best received amount',
 		].join('\n\n');
 	}
 
 	return [
-		'## Monitor 暂未开放',
-		'当前版本先把 Earn 主链路做稳，Monitor 会在后续阶段恢复。',
-		'你现在可以这样问：Find the best USDC vault on Arbitrum',
+		'## Monitor is outside this MVP',
+		'IntentLens currently focuses on LI.FI Intents education for Base USDC -> Arbitrum USDC.',
+		'Try: Send 5 USDC from Base to Arbitrum using LI.FI Intents',
 	].join('\n\n');
 }
 
 function unknownIntentMessage(): string {
 	return [
-		'我目前只开放了 Earn 主链路。',
-		`支持链：${formatSupportedBusinessChainNames()}。`,
-		'当前演示资产：USDC。',
-		'你可以这样问：put 500 USDC into the safest vault above 5% APY on Arbitrum',
+		'IntentLens is an Intents-first LI.FI builder education demo.',
+		'Current MVP path: Base USDC -> Arbitrum USDC.',
+		'Try: Move 10 USDC from Base to Arbitrum with best received amount',
 	].join('\n\n');
 }
 
@@ -135,12 +130,12 @@ async function* unknownIntentMessageFromModel(
 			temperature: 0,
 			maxTokens: 800,
 			system: [
-				'You are Avalokita, the LI.FI AI Earn agent for a USDC-focused DeFi assistant.',
+				'You are IntentLens, the LI.FI Intents education agent for a USDC-focused DeFi assistant.',
 				'You can call tools to gather facts when needed, but do not fabricate tool output.',
-				'The current product scope is Earn only.',
+				'The current product scope is LI.FI Intents education.',
 				`Supported chains: ${formatSupportedBusinessChainsWithIds()}.`,
 				'Supported asset in this demo: USDC.',
-				'If the request is out of scope, politely explain scope and provide 1-2 valid Earn examples.',
+				'If the request is out of scope, politely explain the Base USDC -> Arbitrum USDC MVP and provide 1-2 valid Intents examples.',
 			].join('\n'),
 			prompt: buildUnknownIntentPrompt(input),
 		});
@@ -153,9 +148,75 @@ async function* unknownIntentMessageFromModel(
 	}
 }
 
+async function* runIntentFlight(
+	input: MainAgentInput,
+	plan: PlannerOutput,
+): AsyncGenerator<MainAgentStreamChunk> {
+	const intentPlan =
+		plan.intent === 'intent.transfer'
+			? plan
+			: buildPlannerFallback({
+					message: input.userMessage,
+					walletChainId: input.walletChainId,
+				});
+
+	yield { type: 'plan', plan: intentPlan };
+	yield {
+		type: 'thinking',
+		content: 'Requesting a mainnet LI.FI Intents solver quote...\n',
+	};
+
+	const record = await requestMainnetIntentFlight({
+		asset: 'USDC',
+		amount: intentPlan.amount,
+		sourceChain: intentPlan.sourceChain,
+		targetChain: intentPlan.targetChain,
+		objective: intentPlan.objective,
+		userAddress: input.userAddress,
+	});
+
+	yield { type: 'intent_flight_record', record };
+	yield {
+		type: 'response',
+		content:
+			record.status === 'quote_ready'
+				? [
+						'## IntentLens Flight Recorder',
+						record.educationSummary,
+						'The record below is a mainnet LI.FI Intents quote/order preview. No funds move unless you manually confirm a wallet signature.',
+					].join('\n\n')
+				: [
+						'## IntentLens Flight Recorder',
+						record.educationSummary,
+						`Mainnet LI.FI Intents response: ${record.quoteResult.success ? 'quote ready' : record.quoteResult.error}`,
+					].join('\n\n'),
+	};
+	yield {
+		type: 'done',
+		intent: 'intent',
+		chainId: intentPlan.targetChain,
+	};
+}
+
 export async function* mainAgentStream(
 	input: MainAgentInput,
 ): AsyncGenerator<MainAgentStreamChunk> {
+	if (isWalletContextQuestion(input.userMessage)) {
+		yield {
+			type: 'response',
+			content: buildWalletContextResponse({
+				userAddress: input.userAddress,
+				walletChainId: input.walletChainId,
+			}),
+		};
+		yield {
+			type: 'done',
+			intent: 'unknown',
+			chainId: input.walletChainId,
+		};
+		return;
+	}
+
 	yield { type: 'thinking', content: 'Planning request, please wait...\n' };
 
 	let plannerText = '';
@@ -170,78 +231,17 @@ export async function* mainAgentStream(
 		yield { type: 'thinking', content: next.value };
 	}
 
-	const plan = extractPlannerPayload(plannerText, input.walletChainId);
+	const plannerPlan = extractPlannerPayload(plannerText, input.walletChainId);
+	const plan = mergeIntentPlanFromUserText({
+		userMessage: input.userMessage,
+		walletChainId: input.walletChainId,
+		plannerPlan,
+	});
 	const detected = detectIntentFromMessage(input.userMessage);
 	const effectiveIntent =
 		plan.intent === 'unknown' && detected.intent !== 'unknown'
 			? detected.intent
 			: plan.intent;
-
-	if (effectiveIntent === 'earn.deposit') {
-		for await (const chunk of earningAgentStream({
-			userMessage: input.userMessage,
-			userAddress: input.userAddress,
-			plan,
-			messages: input.messages,
-		})) {
-			yield chunk;
-		}
-
-		yield {
-			type: 'done',
-			intent: 'earn',
-			chainId: plan.targetChain as SupportedWalletChainId,
-		};
-		return;
-	}
-
-	if (effectiveIntent === 'intent.transfer') {
-		const intentPlan =
-			plan.intent === 'intent.transfer'
-				? plan
-				: buildPlannerFallback({
-						message: input.userMessage,
-						walletChainId: input.walletChainId,
-					});
-
-		yield { type: 'plan', plan: intentPlan };
-		yield {
-			type: 'thinking',
-			content: 'Requesting a mainnet LI.FI Intents solver quote...\n',
-		};
-
-		const record = await requestMainnetIntentFlight({
-			asset: 'USDC',
-			amount: intentPlan.amount,
-			sourceChain: intentPlan.sourceChain,
-			targetChain: intentPlan.targetChain,
-			objective: intentPlan.objective,
-			userAddress: input.userAddress,
-		});
-
-		yield { type: 'intent_flight_record', record };
-		yield {
-			type: 'response',
-			content:
-				record.status === 'quote_ready'
-					? [
-							'## IntentLens Flight Recorder',
-							record.educationSummary,
-							'The record below is a mainnet LI.FI Intents quote/order preview. No funds move unless you manually confirm a wallet signature.',
-						].join('\n\n')
-					: [
-							'## IntentLens Flight Recorder',
-							record.educationSummary,
-							`Mainnet LI.FI Intents response: ${record.quoteResult.success ? 'quote ready' : record.quoteResult.error}`,
-						].join('\n\n'),
-		};
-		yield {
-			type: 'done',
-			intent: 'intent',
-			chainId: intentPlan.targetChain,
-		};
-		return;
-	}
 
 	if (effectiveIntent === 'bridge' || effectiveIntent === 'monitor') {
 		yield {
@@ -256,19 +256,8 @@ export async function* mainAgentStream(
 		return;
 	}
 
-	if (isWalletContextQuestion(input.userMessage)) {
-		yield {
-			type: 'response',
-			content: buildWalletContextResponse({
-				userAddress: input.userAddress,
-				walletChainId: input.walletChainId,
-			}),
-		};
-		yield {
-			type: 'done',
-			intent: 'unknown',
-			chainId: input.walletChainId,
-		};
+	if (effectiveIntent === 'intent.transfer') {
+		yield* runIntentFlight(input, plan);
 		return;
 	}
 

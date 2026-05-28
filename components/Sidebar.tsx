@@ -243,7 +243,7 @@ export default function Sidebar() {
 		<nav
 			id='sidebar'
 			className={`relative flex flex-shrink-0 flex-col [background:var(--app-sidebar)] border-r border-[rgba(255,255,255,0.1)] transition-all duration-300 overflow-hidden ${
-				isOpen ? 'w-[120px]' : 'w-[68px]'
+				isOpen ? 'w-[156px]' : 'w-[68px]'
 			}`}
 		>
 			<div className='h-14'></div>
